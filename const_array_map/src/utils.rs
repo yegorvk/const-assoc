@@ -1,5 +1,5 @@
+use core::mem;
 use sealed::sealed;
-use std::mem;
 use typewit::HasTypeWitness;
 
 pub trait ConstIntoUSize: HasTypeWitness<IntoUSizeWitness<Self>> {}

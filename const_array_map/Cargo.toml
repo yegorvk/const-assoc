@@ -2,6 +2,13 @@
 name = "const_array_map"
 version = "0.1.0"
 edition = "2021"
+authors = ["Yegor Vaskonyan <yegor.vaskonyan@gmail.com>"]
+description = "A const-capable Map type backed by a static array"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yegorvk/const_array_map"
+readme = "../README.md"
+keywords = ["no_std", "no-std", "map", "enum", "structure"]
+categories = ["data-structures", "embedded", "no-std"]
 
 [dependencies]
 const_array_map_derive = { path = "../const_array_map_derive" }
