@@ -5,7 +5,6 @@ edition = "2021"
 authors = ["Yegor Vaskonyan <yegor.vaskonyan@gmail.com>"]
 description = "Derive macros for const_array_map crate"
 license = "MIT OR Apache-2.0"
-readme = "../README.md"
 
 [lib]
 proc-macro = true
