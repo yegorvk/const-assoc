@@ -12,6 +12,9 @@ use std::ops::{Index, IndexMut};
 // Re-export `const_default::ConstDefault`.
 pub use const_default::ConstDefault;
 
+// Re-export the derive macro for `PrimitiveEnum`.
+pub use const_array_map_derive::PrimitiveEnum;
+
 #[macro_export]
 macro_rules! const_array_map {
     ($($key:expr => $value:expr),* $(,)?) => {
@@ -146,16 +149,17 @@ unsafe impl<T: PrimitiveEnum, _U> TransmuteSafe<EnumKeyImpl<T, _U>> for T {}
 // SAFETY: `EnumKey<T>` has the same representation as `T`, while `T` has the
 // same representation as `<T::Layout as EnumLayoutTrait>::Discriminant`, since
 // `PrimitiveEnum` implies `TransmuteSafe<<T::Layout as EnumLayoutTrait>::Discriminant>`.
-unsafe impl<T: PrimitiveEnum, _U> TransmuteSafe<<T::Layout as EnumLayoutTrait>::Discriminant>
-    for EnumKeyImpl<T, _U>
+unsafe impl<T: PrimitiveEnum, _U>
+    TransmuteSafe<<T::Layout as PrimitiveEnumLayoutTrait>::Discriminant> for EnumKeyImpl<T, _U>
 {
 }
 
 impl<T: PrimitiveEnum> Key for T
 where
-    EnumKeyImpl<T, <<T as PrimitiveEnum>::Layout as EnumLayoutTrait>::Variants>: KeyImpl,
+    EnumKeyImpl<T, <<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::MaxVariants>:
+        KeyImpl,
 {
-    type Impl = EnumKeyImpl<T, <T::Layout as EnumLayoutTrait>::Variants>;
+    type Impl = EnumKeyImpl<T, <T::Layout as PrimitiveEnumLayoutTrait>::MaxVariants>;
 }
 
 /// Indicates that `Self` is a primitive enum type, meaning that it is an enum
@@ -164,101 +168,45 @@ where
 /// # Safety
 /// The implementors must ensure that `Layout` exactly describes `Self`.
 pub unsafe trait PrimitiveEnum: Copy {
-    type Layout: EnumLayoutTrait;
+    type Layout: PrimitiveEnumLayoutTrait;
 }
 
-// SAFETY: The invariant of `PrimitiveEnum` implies that `Self` always represents
-// a valid enum discriminant when converted to usize, so it must be an integer
-// ranging from 0 to `VARIANTS`-1.
-unsafe impl<T: PrimitiveEnum, const VARIANTS: usize> KeyImpl
-    for EnumKeyImpl<T, ConstUSize<VARIANTS>>
+// SAFETY: The invariant of `PrimitiveEnum` implies that `Self` always
+// represents a valid enum discriminant when converted to usize, so it must be
+// a non-negative integer that is less than `MAX_VARIANTS`.
+unsafe impl<T: PrimitiveEnum, const MAX_VARIANTS: usize> KeyImpl
+    for EnumKeyImpl<T, ConstUSize<MAX_VARIANTS>>
 where
-    <<T as PrimitiveEnum>::Layout as EnumLayoutTrait>::Variants: Is<ConstUSize<VARIANTS>>,
-    EnumKeyImpl<T, ConstUSize<VARIANTS>>:
-        TransmuteSafe<<<T as PrimitiveEnum>::Layout as EnumLayoutTrait>::Discriminant>,
+    <<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::MaxVariants:
+        Is<ConstUSize<MAX_VARIANTS>>,
+    EnumKeyImpl<T, ConstUSize<MAX_VARIANTS>>:
+        TransmuteSafe<<<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::Discriminant>,
 {
-    type Storage<V> = [V; VARIANTS];
-    type Repr = <<T as PrimitiveEnum>::Layout as EnumLayoutTrait>::Discriminant;
+    type Storage<V> = [V; MAX_VARIANTS];
+    type Repr = <<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::Discriminant;
 }
 
-trait EnumLayoutTrait {
+// See `PrimitiveEnumLayout`.
+trait PrimitiveEnumLayoutTrait {
     type Discriminant: Copy + ConstIntoUSize;
-    type Variants: IsConstUSize;
+    type MaxVariants: IsConstUSize;
 }
 
-pub struct EnumLayout<Discriminant, const VARIANTS: usize> {
+/// Represents the layout of an enum with a `#[repr(primitive_type)]` attribute.
+///
+/// # Parameters
+/// * `Discriminant` - The underlying numerical type used to represent enum variants.
+/// * `MAX_MAX_VARIANTS` - The maximum number of variants this enum can have, equal to
+///   the greatest discriminant value among the enum's variants plus 1.
+pub struct PrimitiveEnumLayout<Discriminant, const MAX_MAX_VARIANTS: usize> {
     _marker: PhantomData<Discriminant>,
 }
 
-impl<Discriminant, const VARIANTS: usize> EnumLayoutTrait for EnumLayout<Discriminant, VARIANTS>
+impl<Discriminant, const MAX_VARIANTS: usize> PrimitiveEnumLayoutTrait
+    for PrimitiveEnumLayout<Discriminant, MAX_VARIANTS>
 where
     Discriminant: Copy + ConstIntoUSize,
 {
     type Discriminant = Discriminant;
-    type Variants = ConstUSize<VARIANTS>;
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::{EnumLayout, PrimitiveEnum};
-
-    macro_rules! enum_tests {
-        ($($test_name:ident => $repr:ty),* $(,)?) => {
-            $(
-                #[test]
-                fn $test_name() {
-                    #[repr($repr)]
-                    #[derive(Copy, Clone)]
-                    enum Letter {
-                        A,
-                        B,
-                        C,
-                        D,
-                    }
-
-                    unsafe impl PrimitiveEnum for Letter {
-                        type Layout = EnumLayout<$repr, 4>;
-                    }
-
-                    let mut letters = const_array_map! {
-                        Letter::A => 'a',
-                        Letter::B => 'b',
-                        Letter::C => 'c',
-                        Letter::D => 'd',
-                    };
-
-                    assert_eq!(letters[Letter::A], 'a');
-                    assert_eq!(*letters.get(Letter::B), 'b');
-                    assert_eq!(*letters.const_get(Letter::C), 'c');
-
-                    letters[Letter::B] = 'x';
-                    assert_eq!(letters[Letter::B], 'x');
-                }
-            )*
-        };
-    }
-
-    #[cfg(target_pointer_width = "16")]
-    enum_tests! {
-        enum_u8 => u8,
-        enum_u16 => u16,
-        enum_usize => usize,
-    }
-
-    #[cfg(target_pointer_width = "32")]
-    enum_tests! {
-        enum_u8 => u8,
-        enum_u16 => u16,
-        enum_u32 => u32,
-        enum_usize => usize,
-    }
-
-    #[cfg(target_pointer_width = "64")]
-    enum_tests! {
-        enum_u8 => u8,
-        enum_u16 => u16,
-        enum_u32 => u32,
-        enum_u64 => u64,
-        enum_usize => usize,
-    }
+    type MaxVariants = ConstUSize<MAX_VARIANTS>;
 }

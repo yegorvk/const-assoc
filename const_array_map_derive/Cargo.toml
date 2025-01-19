@@ -1,0 +1,13 @@
+[package]
+name = "const_array_map_derive"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = "2.0.96"
+quote = "1.0.38"
+anyhow = "1.0.95"
+proc-macro2 = "1.0.93"

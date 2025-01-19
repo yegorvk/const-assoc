@@ -1,0 +1,11 @@
+[package]
+name = "const_array_map"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+const_array_map_derive = { path = "../const_array_map_derive" }
+const-default = "1.0.0"
+typewit = "1.11.0"
+derive-where = "1.2.7"
+sealed = "0.6.0"
