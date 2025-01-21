@@ -60,7 +60,7 @@ macro_rules! const_array_map {
             let phantom_values = $crate::const_array_macro::PhantomArray::new(&[$($value),*]);
             
             if $crate::const_array_macro::has_duplicate_keys(&[$($key),*], phantom_values) {
-                panic!("A `ConstArrayMap` cannot have two values with identical keys");
+                panic!("A `ConstArrayMap` cannot have two values with identical keys.");
             }
 
             let mut map = $crate::ConstArrayMap::<_, _>::new_uninit();

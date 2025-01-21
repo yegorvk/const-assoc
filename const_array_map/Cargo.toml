@@ -1,6 +1,6 @@
 [package]
 name = "const_array_map"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Yegor Vaskonyan <yegor.vaskonyan@gmail.com>"]
 description = "A const-capable Map type backed by a static array"
