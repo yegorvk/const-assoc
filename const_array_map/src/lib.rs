@@ -57,17 +57,78 @@ pub use const_array_map_derive::PrimitiveEnum;
 macro_rules! const_array_map {
     ($($key:expr => $value:expr),* $(,)?) => {
         {
-            let mut map = <$crate::ConstArrayMap<_, _> as $crate::ConstDefault>::DEFAULT;
-            $( *map.const_get_mut($key) = $value; )*
-            map
+            let phantom_values = $crate::const_array_macro::PhantomArray::new(&[$($value),*]);
+            
+            if $crate::const_array_macro::has_duplicate_keys(&[$($key),*], phantom_values) {
+                panic!("A `ConstArrayMap` cannot have two values with identical keys");
+            }
+
+            let mut map = $crate::ConstArrayMap::<_, _>::new_uninit();
+
+            $(
+                *map.const_get_mut($key) = ::core::mem::MaybeUninit::new($value);
+            )*
+
+            // SAFETY:
+            // - `has_duplicate_keys` ensures that the code won't compile if
+            //   there are not as many keys as values.
+            // - `has_duplicate_keys` checks for duplicate keys and panics
+            //   otherwise.
+            //
+            // Thus, since there are exactly as many keys as values and no
+            // duplicate keys, each key corresponds to exactly one value and
+            // each value corresponds to a unique key, which implies that the
+            // `map` must have been fully initialized.
+            unsafe { map.assume_init() }
         }
     };
+}
+
+#[doc(hidden)]
+pub mod const_array_macro {
+    use core::marker::PhantomData;
+    use crate::{key_to_index, Key, KeyImpl};
+
+    pub const fn has_duplicate_keys<K: Key, V, const N: usize>(
+        keys: &[K; N],
+        _values: PhantomArray<V, N>,
+    ) -> bool
+    where
+        K::Impl: KeyImpl<Storage<V> = [V; N]>,
+    {
+        let mut i = 0;
+
+        while i < N {
+            let mut j = i + 1;
+
+            while j < N {
+                if key_to_index(keys[i]) == key_to_index(keys[j]) {
+                    return true;
+                }
+
+                j += 1;
+            }
+
+            i += 1;
+        }
+
+        false
+    }
+
+    pub struct PhantomArray<T, const N: usize>(PhantomData<[T; N]>);
+
+    impl<T, const N: usize> PhantomArray<T, N> {
+        #[inline(always)]
+        pub const fn new(_array: &[T; N]) -> Self {
+            PhantomArray(PhantomData)
+        }
+    }
 }
 
 /// An associative array (Map) backed by a Rust's built-in array.
 ///
 /// When used with key types implementing [`PrimitiveEnum`], this type is a
-/// zero-cost abstraction over an array as enum variants can be converted
+/// zero-cost abstraction over an array since enum variants can be converted
 /// to array indices via single transmute and a static cast (`as` operator).
 #[repr(transparent)]
 pub struct ConstArrayMap<K: Key, V> {
@@ -96,8 +157,24 @@ where
 
 impl<K: Key, V, const N: usize> ConstArrayMap<K, V>
 where
-    K::Impl: KeyImpl<Storage<V> = [V; N]>,
+    K::Impl: KeyImpl<Storage<V>=[V; N]>,
 {
+    pub const LEN: usize = N;
+
+    pub const fn from_values(values: [V; N]) -> Self {
+        Self { storage: values }
+    }
+
+    #[inline(always)]
+    pub const fn len(&self) -> usize {
+        Self::LEN
+    }
+
+    #[inline(always)]
+    pub const fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Returns a reference to the value associated with the given key.
     #[inline(always)]
     pub fn get(&self, key: K) -> &V {
@@ -138,29 +215,26 @@ where
 
     /// Takes `self` by value and returns an iterator over all the values
     /// stored in this map.
-    #[inline]
-    pub fn into_values(self) -> impl Iterator<Item = V> {
+    pub fn into_values(self) -> impl Iterator<Item=V> {
         self.storage.into_iter()
     }
 
     /// Returns an iterator over shared references to all values stored in this
     /// map in arbitrary order.
-    #[inline]
-    pub fn values(&self) -> impl Iterator<Item = &V> {
+    pub fn values(&self) -> impl Iterator<Item=&V> {
         self.storage.iter()
     }
 
     /// Returns an iterator over mutable references to all values stored in
     /// this map in arbitrary order.
-    #[inline]
-    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
+    pub fn values_mut(&mut self) -> impl Iterator<Item=&mut V> {
         self.storage.iter_mut()
     }
 }
 
 impl<K: Key, V, const N: usize> Index<K> for ConstArrayMap<K, V>
 where
-    K::Impl: KeyImpl<Storage<V> = [V; N]>,
+    K::Impl: KeyImpl<Storage<V>=[V; N]>,
 {
     type Output = V;
 
@@ -172,7 +246,7 @@ where
 
 impl<K: Key, V, const N: usize> IndexMut<K> for ConstArrayMap<K, V>
 where
-    K::Impl: KeyImpl<Storage<V> = [V; N]>,
+    K::Impl: KeyImpl<Storage<V>=[V; N]>,
 {
     #[inline(always)]
     fn index_mut(&mut self, index: K) -> &mut Self::Output {
@@ -182,15 +256,14 @@ where
 
 impl<K: Key, V, const N: usize> ConstArrayMap<K, MaybeUninit<V>>
 where
-    K::Impl: KeyImpl<Storage<V> = [V; N]>,
-    K::Impl: KeyImpl<Storage<MaybeUninit<V>> = [MaybeUninit<V>; N]>,
+    K::Impl: KeyImpl<Storage<V>=[V; N]>,
+    K::Impl: KeyImpl<Storage<MaybeUninit<V>>=[MaybeUninit<V>; N]>,
 {
-    #[inline]
-    pub const fn new_uninit() -> ConstArrayMap<K, MaybeUninit<V>> {
+    pub const fn new_uninit() -> Self {
         // SAFETY: we are transmute an uninitialized array to an array with
         // uninitialized elements, which is always safe.
         let storage: [MaybeUninit<V>; N] = unsafe { MaybeUninit::uninit().assume_init() };
-        ConstArrayMap { storage }
+        Self { storage }
     }
 
     /// Interprets this map as fully initialized, meaning that all its values
@@ -201,7 +274,6 @@ where
     /// initialized, meaning that all values have been given an initialized
     /// value such that calling `MaybeUninit::assume_init` on them would be
     /// safe.
-    #[inline]
     pub const unsafe fn assume_init(self) -> ConstArrayMap<K, V> {
         ConstArrayMap {
             // SAFETY: the caller guarantees that all elements of
@@ -221,8 +293,9 @@ unsafe trait KeyImpl: Copy + TransmuteSafe<Self::Repr> {
     type Repr: Copy + ConstIntoUSize;
 }
 
+#[doc(hidden)]
 #[inline(always)]
-const fn key_to_index<K: Key>(key: K) -> usize {
+pub const fn key_to_index<K: Key>(key: K) -> usize {
     let key_impl = transmute_safe(key);
     key_impl_to_index(key_impl)
 }
@@ -248,14 +321,13 @@ unsafe impl<T: PrimitiveEnum, _U> TransmuteSafe<EnumKeyImpl<T, _U>> for T {}
 // same representation as `<T::Layout as EnumLayoutTrait>::Discriminant`, since
 // `PrimitiveEnum` implies `TransmuteSafe<<T::Layout as EnumLayoutTrait>::Discriminant>`.
 unsafe impl<T: PrimitiveEnum, _U>
-    TransmuteSafe<<T::Layout as PrimitiveEnumLayoutTrait>::Discriminant> for EnumKeyImpl<T, _U>
-{
-}
+TransmuteSafe<<T::Layout as PrimitiveEnumLayoutTrait>::Discriminant> for EnumKeyImpl<T, _U>
+{}
 
 impl<T: PrimitiveEnum> Key for T
 where
     EnumKeyImpl<T, <<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::MaxVariants>:
-        KeyImpl,
+    KeyImpl,
 {
     type Impl = EnumKeyImpl<T, <T::Layout as PrimitiveEnumLayoutTrait>::MaxVariants>;
 }
@@ -274,12 +346,12 @@ pub unsafe trait PrimitiveEnum: Copy {
 // represents a valid enum discriminant when converted to usize, so it must be
 // a non-negative integer that is less than `MAX_VARIANTS`.
 unsafe impl<T: PrimitiveEnum, const MAX_VARIANTS: usize> KeyImpl
-    for EnumKeyImpl<T, ConstUSize<MAX_VARIANTS>>
+for EnumKeyImpl<T, ConstUSize<MAX_VARIANTS>>
 where
     <<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::MaxVariants:
-        Is<ConstUSize<MAX_VARIANTS>>,
+    Is<ConstUSize<MAX_VARIANTS>>,
     EnumKeyImpl<T, ConstUSize<MAX_VARIANTS>>:
-        TransmuteSafe<<<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::Discriminant>,
+    TransmuteSafe<<<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::Discriminant>,
 {
     type Storage<V> = [V; MAX_VARIANTS];
     type Repr = <<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::Discriminant;
@@ -302,7 +374,7 @@ pub struct PrimitiveEnumLayout<Discriminant, const MAX_MAX_VARIANTS: usize> {
 }
 
 impl<Discriminant, const MAX_VARIANTS: usize> PrimitiveEnumLayoutTrait
-    for PrimitiveEnumLayout<Discriminant, MAX_VARIANTS>
+for PrimitiveEnumLayout<Discriminant, MAX_VARIANTS>
 where
     Discriminant: Copy + ConstIntoUSize,
 {
