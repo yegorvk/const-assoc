@@ -37,9 +37,11 @@
 mod utils;
 
 use crate::utils::{
-    into_usize, transmute_safe, ConstIntoUSize, ConstUSize, Is, IsConstUSize, TransmuteSafe,
+    assume_init_array, into_usize, transmute_safe, ConstIntoUSize, ConstUSize, Is, IsConstUSize,
+    TransmuteSafe,
 };
 use core::marker::PhantomData;
+use core::mem::MaybeUninit;
 use core::ops::{Index, IndexMut};
 use derive_where::derive_where;
 
@@ -99,26 +101,26 @@ where
     /// Returns a reference to the value associated with the given key.
     #[inline(always)]
     pub fn get(&self, key: K) -> &V {
-        let idx = key_to_index(transmute_safe(key));
+        let idx = key_to_index(key);
         // SAFETY: The invariant of `KeyImpl` guarantees that
         // `idx` is always less than `self.storage.len()`.
         unsafe { self.storage.get_unchecked(idx) }
     }
 
     /// Returns a reference to the value associated with the given key.
-    /// 
-    /// This version does bounds-checking therefore can be used in const 
+    ///
+    /// This version does bounds-checking therefore can be used in const
     /// contexts, unlike `get`.
     #[inline(always)]
     pub const fn const_get(&self, key: K) -> &V {
-        let idx = key_to_index(transmute_safe(key));
+        let idx = key_to_index(key);
         &self.storage[idx]
     }
 
     /// Returns a mutable reference to the value associated with the given key.
     #[inline(always)]
     pub fn get_mut(&mut self, key: K) -> &mut V {
-        let idx = key_to_index(transmute_safe(key));
+        let idx = key_to_index(key);
         // SAFETY: The invariant of `KeyImpl` guarantees that
         // `idx` is always less than `self.storage.len()`.
         unsafe { self.storage.get_unchecked_mut(idx) }
@@ -126,11 +128,11 @@ where
 
     /// Returns a mutable reference to the value associated with the given key.
     ///
-    /// This version does bounds-checking, therefore can be used in const 
+    /// This version does bounds-checking, therefore can be used in const
     /// contexts, unlike `get`.
     #[inline(always)]
     pub const fn const_get_mut(&mut self, key: K) -> &mut V {
-        let idx = key_to_index(transmute_safe(key));
+        let idx = key_to_index(key);
         &mut self.storage[idx]
     }
 
@@ -148,8 +150,8 @@ where
         self.storage.iter()
     }
 
-    /// Returns an iterator over mutable references to all values stored in this 
-    /// map in arbitrary order.
+    /// Returns an iterator over mutable references to all values stored in
+    /// this map in arbitrary order.
     #[inline]
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
         self.storage.iter_mut()
@@ -178,19 +180,55 @@ where
     }
 }
 
+impl<K: Key, V, const N: usize> ConstArrayMap<K, MaybeUninit<V>>
+where
+    K::Impl: KeyImpl<Storage<V> = [V; N]>,
+    K::Impl: KeyImpl<Storage<MaybeUninit<V>> = [MaybeUninit<V>; N]>,
+{
+    #[inline]
+    pub const fn new_uninit() -> ConstArrayMap<K, MaybeUninit<V>> {
+        // SAFETY: we are transmute an uninitialized array to an array with
+        // uninitialized elements, which is always safe.
+        let storage: [MaybeUninit<V>; N] = unsafe { MaybeUninit::uninit().assume_init() };
+        ConstArrayMap { storage }
+    }
+
+    /// Interprets this map as fully initialized, meaning that all its values
+    /// have been given a concrete value.
+    ///
+    /// # Safety
+    /// The caller must ensure that the map has actually been fully
+    /// initialized, meaning that all values have been given an initialized
+    /// value such that calling `MaybeUninit::assume_init` on them would be
+    /// safe.
+    #[inline]
+    pub const unsafe fn assume_init(self) -> ConstArrayMap<K, V> {
+        ConstArrayMap {
+            // SAFETY: the caller guarantees that all elements of
+            // `self.storage` have been initialized.
+            storage: unsafe { assume_init_array(self.storage) },
+        }
+    }
+}
+
 /// Describes a key type for [ConstArrayMap].
 ///
 /// # Safety
 /// Whenever `Storage<V>` is an array `[V; N]` for some N, `Self` must be less
-/// than `N` when converted to `usize` via
-/// `into_usize(transmute_safe<Self, Self::Repr>())`.
+/// than `N` when converted to `usize` via `key_impl_to_index`.
 unsafe trait KeyImpl: Copy + TransmuteSafe<Self::Repr> {
     type Storage<V>;
     type Repr: Copy + ConstIntoUSize;
 }
 
 #[inline(always)]
-const fn key_to_index<K: KeyImpl>(key: K) -> usize {
+const fn key_to_index<K: Key>(key: K) -> usize {
+    let key_impl = transmute_safe(key);
+    key_impl_to_index(key_impl)
+}
+
+#[inline(always)]
+const fn key_impl_to_index<K: KeyImpl>(key: K) -> usize {
     let repr: K::Repr = transmute_safe(key);
     into_usize(repr)
 }

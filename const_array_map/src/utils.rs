@@ -1,4 +1,5 @@
 use core::mem;
+use core::mem::MaybeUninit;
 use sealed::sealed;
 use typewit::HasTypeWitness;
 
@@ -111,3 +112,10 @@ pub trait Is<Rhs> {}
 
 #[sealed]
 impl<T> Is<T> for T {}
+
+#[inline(always)]
+pub const unsafe fn assume_init_array<T, const N: usize>(array: [MaybeUninit<T>; N]) -> [T; N] {
+    let array = MaybeUninit::new(array);
+    let ptr: *const [T; N] = array.as_ptr() as *const [T; N];
+    unsafe { ptr.cast::<[T; N]>().read() }
+}
