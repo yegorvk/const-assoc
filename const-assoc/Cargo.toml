@@ -1,6 +1,6 @@
 [package]
-name = "const_array_map"
-version = "0.1.1"
+name = "const-assoc"
+version = "0.1.0"
 edition = "2021"
 authors = ["Yegor Vaskonyan <yegor.vaskonyan@gmail.com>"]
 description = "A const-capable Map type backed by a static array"
@@ -11,7 +11,7 @@ keywords = ["no_std", "no-std", "map", "enum", "structure"]
 categories = ["data-structures", "embedded", "no-std"]
 
 [dependencies]
-const_array_map_derive = { version = "0.1.1", path = "../const_array_map_derive" }
+const-assoc-derive = { version = "0.1.0", path = "../const-assoc-derive" }
 const-default = "1.0.0"
 typewit = "1.11.0"
 derive-where = "1.2.7"

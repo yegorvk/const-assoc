@@ -21,8 +21,8 @@ fn derive(input: &DeriveInput) -> Result<TokenStream2> {
     let max_variants = max_discriminant(data)? + 1;
 
     Ok(quote! {
-        unsafe impl ::const_array_map::PrimitiveEnum for #name {
-            type Layout = ::const_array_map::PrimitiveEnumLayout<#repr, #max_variants>;
+        unsafe impl ::const_assoc::PrimitiveEnum for #name {
+            type Layout = ::const_assoc::PrimitiveEnumLayout<#repr, #max_variants>;
         }
     })
 }
@@ -42,7 +42,6 @@ fn parse_repr_attribute(attrs: &[Attribute]) -> Result<EnumRepr> {
         .ok_or(anyhow!("enum must have a primitive representation"))?;
 
     let repr_ident = attr.meta.require_list()?.parse_args::<Ident>()?;
-
     let repr_str = repr_ident.to_string();
 
     let repr = match repr_str.as_str() {
@@ -51,7 +50,7 @@ fn parse_repr_attribute(attrs: &[Attribute]) -> Result<EnumRepr> {
         "u32" => EnumRepr::U32,
         "u64" => EnumRepr::U64,
         "usize" => EnumRepr::USize,
-        _ => bail!("`{repr_str}` is not a supported primitive enum representation"),
+        _ => bail!("`{repr_str}` is not supported as a primitive enum representation"),
     };
 
     Ok(repr)
@@ -60,7 +59,7 @@ fn parse_repr_attribute(attrs: &[Attribute]) -> Result<EnumRepr> {
 fn max_discriminant(enum_: &DataEnum) -> Result<usize> {
     for variant in &enum_.variants {
         if variant.discriminant.is_some() {
-            bail!("enums that have variants with explicitly set discriminants are not supported");
+            bail!("enums that have variants with explicit discriminants are not supported");
         }
     }
 
@@ -77,14 +76,14 @@ enum EnumRepr {
 
 impl ToTokens for EnumRepr {
     fn to_tokens(&self, tokens: &mut TokenStream2) {
-        let token_stream = match self {
+        let t = match self {
             EnumRepr::U8 => quote! { u8 },
             EnumRepr::U16 => quote! { u16 },
             EnumRepr::U32 => quote! { u32 },
             EnumRepr::U64 => quote! { u64 },
             EnumRepr::USize => quote! { usize },
         };
-
-        token_stream.to_tokens(tokens);
+        
+        t.to_tokens(tokens);
     }
 }

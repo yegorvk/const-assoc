@@ -1,20 +1,15 @@
 #![no_std]
 #![allow(private_bounds)]
 
-//! A `no_std`-compatible, const-capable Map type backed by an array.
-//!
-//! This crate defines a new map type, [`ConstArrayMap`], similar to other
-//! data structures but implemented using a single array with
-//! zero-cost conversion between keys and array indices.
+//! A `no_std`-compatible, const-capable associative array with minimal or no runtime overhead.
 //!
 //! Currently, keys are limited to enums with a primitive representation. In the future,
-//! it might also be possible to support arbitrary types with a relatively small
-//! number of distinct valid values, possibly at the expense of not exposing
-//! `const`-qualified methods for these key types.
+//! it might be possible to support other types, possibly at the expense of not exposing
+//! `const`-qualified methods for these key types or some runtime overhead.
 //!
 //! # Example
 //! ```
-//! use const_array_map::{const_array_map, PrimitiveEnum};
+//! use const_assoc::{assoc, PrimitiveEnum};
 //!
 //! #[repr(u8)]
 //! #[derive(Copy, Clone, PrimitiveEnum)]
@@ -24,7 +19,7 @@
 //!     C,
 //! }
 //!
-//! let letters = const_array_map! {
+//! let letters = assoc! {
 //!     Letter::A => 'a',
 //!     Letter::B => 'b',
 //!     Letter::C => 'c',
@@ -49,21 +44,39 @@ use derive_where::derive_where;
 pub use const_default::ConstDefault;
 
 // Re-export the derive macro for `PrimitiveEnum`.
-pub use const_array_map_derive::PrimitiveEnum;
+pub use const_assoc_derive::PrimitiveEnum;
 
-/// Provides an easy way to construct a new [`ConstArrayMap`] from a number of
-/// key-value pairs that can also be used in const contexts.
+/// Provides an easy, const-friendly way to construct a new [`Assoc`] instance.
+///
+/// # Example
+/// ```
+/// use const_assoc::{assoc, PrimitiveEnum};
+///
+/// #[repr(u8)]
+/// #[derive(Copy, Clone, PrimitiveEnum)]
+/// enum Letter {
+///     A,
+///     B,
+///     C,
+/// }
+///
+/// let letters = assoc! {
+///     Letter::A => 'a',
+///     Letter::B => 'b',
+///     Letter::C => 'c',
+/// };
+/// ```
 #[macro_export]
-macro_rules! const_array_map {
+macro_rules! assoc {
     ($($key:expr => $value:expr),* $(,)?) => {
         {
-            let phantom_values = $crate::const_array_macro::PhantomArray::new(&[$($value),*]);
-            
-            if $crate::const_array_macro::has_duplicate_keys(&[$($key),*], phantom_values) {
+            let phantom_values = $crate::assoc_macro_private::PhantomArray::new(&[$($value),*]);
+
+            if $crate::assoc_macro_private::has_duplicate_keys(&[$($key),*], phantom_values) {
                 panic!("A `ConstArrayMap` cannot have two values with identical keys.");
             }
 
-            let mut map = $crate::ConstArrayMap::<_, _>::new_uninit();
+            let mut map = $crate::Assoc::<_, _>::new_uninit();
 
             $(
                 *map.const_get_mut($key) = ::core::mem::MaybeUninit::new($value);
@@ -77,7 +90,7 @@ macro_rules! const_array_map {
             //
             // Thus, since there are exactly as many keys as values and no
             // duplicate keys, each key corresponds to exactly one value and
-            // each value corresponds to a unique key, which implies that the
+            // each value corresponds to a unique key, which implies that
             // `map` must have been fully initialized.
             unsafe { map.assume_init() }
         }
@@ -85,9 +98,9 @@ macro_rules! const_array_map {
 }
 
 #[doc(hidden)]
-pub mod const_array_macro {
-    use core::marker::PhantomData;
+pub mod assoc_macro_private {
     use crate::{key_to_index, Key, KeyImpl};
+    use core::marker::PhantomData;
 
     pub const fn has_duplicate_keys<K: Key, V, const N: usize>(
         keys: &[K; N],
@@ -125,17 +138,13 @@ pub mod const_array_macro {
     }
 }
 
-/// An associative array (Map) backed by a Rust's built-in array.
-///
-/// When used with key types implementing [`PrimitiveEnum`], this type is a
-/// zero-cost abstraction over an array since enum variants can be converted
-/// to array indices via single transmute and a static cast (`as` operator).
+/// Associates keys with values with minimal or no runtime overhead.
 #[repr(transparent)]
-pub struct ConstArrayMap<K: Key, V> {
+pub struct Assoc<K: Key, V> {
     storage: <K::Impl as KeyImpl>::Storage<V>,
 }
 
-impl<K: Key, V: ConstDefault> ConstDefault for ConstArrayMap<K, V>
+impl<K: Key, V: ConstDefault> ConstDefault for Assoc<K, V>
 where
     <K::Impl as KeyImpl>::Storage<V>: ConstDefault,
 {
@@ -144,7 +153,7 @@ where
     };
 }
 
-impl<K: Key, V: ConstDefault> Default for ConstArrayMap<K, V>
+impl<K: Key, V: ConstDefault> Default for Assoc<K, V>
 where
     <K::Impl as KeyImpl>::Storage<V>: Default,
 {
@@ -155,9 +164,9 @@ where
     }
 }
 
-impl<K: Key, V, const N: usize> ConstArrayMap<K, V>
+impl<K: Key, V, const N: usize> Assoc<K, V>
 where
-    K::Impl: KeyImpl<Storage<V>=[V; N]>,
+    K::Impl: KeyImpl<Storage<V> = [V; N]>,
 {
     pub const LEN: usize = N;
 
@@ -215,26 +224,26 @@ where
 
     /// Takes `self` by value and returns an iterator over all the values
     /// stored in this map.
-    pub fn into_values(self) -> impl Iterator<Item=V> {
+    pub fn into_values(self) -> impl Iterator<Item = V> {
         self.storage.into_iter()
     }
 
     /// Returns an iterator over shared references to all values stored in this
     /// map in arbitrary order.
-    pub fn values(&self) -> impl Iterator<Item=&V> {
+    pub fn values(&self) -> impl Iterator<Item = &V> {
         self.storage.iter()
     }
 
     /// Returns an iterator over mutable references to all values stored in
     /// this map in arbitrary order.
-    pub fn values_mut(&mut self) -> impl Iterator<Item=&mut V> {
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut V> {
         self.storage.iter_mut()
     }
 }
 
-impl<K: Key, V, const N: usize> Index<K> for ConstArrayMap<K, V>
+impl<K: Key, V, const N: usize> Index<K> for Assoc<K, V>
 where
-    K::Impl: KeyImpl<Storage<V>=[V; N]>,
+    K::Impl: KeyImpl<Storage<V> = [V; N]>,
 {
     type Output = V;
 
@@ -244,9 +253,9 @@ where
     }
 }
 
-impl<K: Key, V, const N: usize> IndexMut<K> for ConstArrayMap<K, V>
+impl<K: Key, V, const N: usize> IndexMut<K> for Assoc<K, V>
 where
-    K::Impl: KeyImpl<Storage<V>=[V; N]>,
+    K::Impl: KeyImpl<Storage<V> = [V; N]>,
 {
     #[inline(always)]
     fn index_mut(&mut self, index: K) -> &mut Self::Output {
@@ -254,10 +263,10 @@ where
     }
 }
 
-impl<K: Key, V, const N: usize> ConstArrayMap<K, MaybeUninit<V>>
+impl<K: Key, V, const N: usize> Assoc<K, MaybeUninit<V>>
 where
-    K::Impl: KeyImpl<Storage<V>=[V; N]>,
-    K::Impl: KeyImpl<Storage<MaybeUninit<V>>=[MaybeUninit<V>; N]>,
+    K::Impl: KeyImpl<Storage<V> = [V; N]>,
+    K::Impl: KeyImpl<Storage<MaybeUninit<V>> = [MaybeUninit<V>; N]>,
 {
     pub const fn new_uninit() -> Self {
         // SAFETY: we are transmute an uninitialized array to an array with
@@ -274,8 +283,8 @@ where
     /// initialized, meaning that all values have been given an initialized
     /// value such that calling `MaybeUninit::assume_init` on them would be
     /// safe.
-    pub const unsafe fn assume_init(self) -> ConstArrayMap<K, V> {
-        ConstArrayMap {
+    pub const unsafe fn assume_init(self) -> Assoc<K, V> {
+        Assoc {
             // SAFETY: the caller guarantees that all elements of
             // `self.storage` have been initialized.
             storage: unsafe { assume_init_array(self.storage) },
@@ -283,7 +292,7 @@ where
     }
 }
 
-/// Describes a key type for [ConstArrayMap].
+/// Describes a key type for [Assoc].
 ///
 /// # Safety
 /// Whenever `Storage<V>` is an array `[V; N]` for some N, `Self` must be less
@@ -306,6 +315,7 @@ const fn key_impl_to_index<K: KeyImpl>(key: K) -> usize {
     into_usize(repr)
 }
 
+/// Indirectly defines a way to use `Self` as a key for [Assoc].
 trait Key: TransmuteSafe<Self::Impl> {
     type Impl: KeyImpl;
 }
@@ -321,13 +331,14 @@ unsafe impl<T: PrimitiveEnum, _U> TransmuteSafe<EnumKeyImpl<T, _U>> for T {}
 // same representation as `<T::Layout as EnumLayoutTrait>::Discriminant`, since
 // `PrimitiveEnum` implies `TransmuteSafe<<T::Layout as EnumLayoutTrait>::Discriminant>`.
 unsafe impl<T: PrimitiveEnum, _U>
-TransmuteSafe<<T::Layout as PrimitiveEnumLayoutTrait>::Discriminant> for EnumKeyImpl<T, _U>
-{}
+    TransmuteSafe<<T::Layout as PrimitiveEnumLayoutTrait>::Discriminant> for EnumKeyImpl<T, _U>
+{
+}
 
 impl<T: PrimitiveEnum> Key for T
 where
     EnumKeyImpl<T, <<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::MaxVariants>:
-    KeyImpl,
+        KeyImpl,
 {
     type Impl = EnumKeyImpl<T, <T::Layout as PrimitiveEnumLayoutTrait>::MaxVariants>;
 }
@@ -346,12 +357,12 @@ pub unsafe trait PrimitiveEnum: Copy {
 // represents a valid enum discriminant when converted to usize, so it must be
 // a non-negative integer that is less than `MAX_VARIANTS`.
 unsafe impl<T: PrimitiveEnum, const MAX_VARIANTS: usize> KeyImpl
-for EnumKeyImpl<T, ConstUSize<MAX_VARIANTS>>
+    for EnumKeyImpl<T, ConstUSize<MAX_VARIANTS>>
 where
     <<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::MaxVariants:
-    Is<ConstUSize<MAX_VARIANTS>>,
+        Is<ConstUSize<MAX_VARIANTS>>,
     EnumKeyImpl<T, ConstUSize<MAX_VARIANTS>>:
-    TransmuteSafe<<<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::Discriminant>,
+        TransmuteSafe<<<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::Discriminant>,
 {
     type Storage<V> = [V; MAX_VARIANTS];
     type Repr = <<T as PrimitiveEnum>::Layout as PrimitiveEnumLayoutTrait>::Discriminant;
@@ -374,7 +385,7 @@ pub struct PrimitiveEnumLayout<Discriminant, const MAX_MAX_VARIANTS: usize> {
 }
 
 impl<Discriminant, const MAX_VARIANTS: usize> PrimitiveEnumLayoutTrait
-for PrimitiveEnumLayout<Discriminant, MAX_VARIANTS>
+    for PrimitiveEnumLayout<Discriminant, MAX_VARIANTS>
 where
     Discriminant: Copy + ConstIntoUSize,
 {

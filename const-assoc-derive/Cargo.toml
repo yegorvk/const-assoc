@@ -1,9 +1,9 @@
 [package]
-name = "const_array_map_derive"
-version = "0.1.1"
+name = "const-assoc-derive"
+version = "0.1.0"
 edition = "2021"
 authors = ["Yegor Vaskonyan <yegor.vaskonyan@gmail.com>"]
-description = "Derive macros for const_array_map crate"
+description = "Derive macros for const-assoc crate"
 license = "MIT OR Apache-2.0"
 
 [lib]

@@ -72,7 +72,7 @@ typewit::simple_type_witness! {
 /// Indicates that transmuting `Self` to `Dst` is always safe.
 ///
 /// # Safety
-/// The implementors of this trait are responsible to ensure that calling
+/// Implementors of this trait must ensure that calling both
 /// `mem::transmute::<Self, Dst>` and `mem::transmute_copy::<Self, Dst>` is
 /// always safe.
 pub unsafe trait TransmuteSafe<Dst: Copy>: Copy {}
@@ -115,6 +115,9 @@ impl<T> Is<T> for T {}
 
 #[inline(always)]
 pub const unsafe fn assume_init_array<T, const N: usize>(array: [MaybeUninit<T>; N]) -> [T; N] {
+    // This code heavily relies on the compiler understanding that this is a no-op.
+    // Unfortunately, we can't directly use transmute here, because the compiler
+    // cannot prove that `[MaybeUninit<T>; N]` has the same size as `[T; N]`
     let array = MaybeUninit::new(array);
     let ptr: *const [T; N] = array.as_ptr() as *const [T; N];
     unsafe { ptr.cast::<[T; N]>().read() }

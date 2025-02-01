@@ -1,4 +1,4 @@
-use const_array_map::{const_array_map, PrimitiveEnum};
+use const_assoc::{assoc, PrimitiveEnum};
 
 macro_rules! enum_tests {
     ($($test_name:ident => $repr:ty),* $(,)?) => {
@@ -14,7 +14,7 @@ macro_rules! enum_tests {
                     D,
                 }
 
-                let mut letters = const_array_map! {
+                let mut letters = assoc! {
                     Letter::A => 'a',
                     Letter::B => 'b',
                     Letter::C => 'c',
